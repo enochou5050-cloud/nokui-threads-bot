@@ -1,0 +1,79 @@
+"""예약된 쓰레드 글을 메타 공식 Threads API로 올린다.
+posts/*.json 중 시간이 지났고 아직 안 올린 글을 올리고 posted.json에 기록한다."""
+import json, os, glob, time, urllib.parse, urllib.request
+from datetime import datetime, timezone, timedelta
+
+API = "https://graph.threads.net/v1.0"
+TOKEN = os.environ["THREADS_TOKEN"]
+REPO = os.environ["GITHUB_REPOSITORY"]
+BRANCH = os.environ.get("GITHUB_REF_NAME", "main")
+KST = timezone(timedelta(hours=9))
+RAW = f"https://raw.githubusercontent.com/{REPO}/{BRANCH}/images/"
+
+def call(path, params, method="POST"):
+    params = {**params, "access_token": TOKEN}
+    data = urllib.parse.urlencode(params).encode()
+    url = f"{API}/{path}"
+    req = urllib.request.Request(url, data=data, method="POST") if method == "POST" \
+        else urllib.request.Request(url + "?" + data.decode())
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"{path}: {e.code} {e.read().decode()[:500]}")
+
+def wait_ready(cid):
+    for _ in range(30):
+        s = call(cid, {"fields": "status,error_message"}, "GET")
+        if s.get("status") == "FINISHED":
+            return
+        if s.get("status") == "ERROR":
+            raise RuntimeError(f"container {cid}: {s.get('error_message')}")
+        time.sleep(5)
+    raise RuntimeError(f"container {cid}: timeout")
+
+def publish(text, images, reply_to=None):
+    base = {"reply_to_id": reply_to} if reply_to else {}
+    urls = [RAW + urllib.parse.quote(i) for i in images]
+    if not urls:
+        cid = call("me/threads", {**base, "media_type": "TEXT", "text": text})["id"]
+    elif len(urls) == 1:
+        cid = call("me/threads", {**base, "media_type": "IMAGE", "image_url": urls[0], "text": text})["id"]
+    else:
+        kids = []
+        for u in urls:
+            k = call("me/threads", {"media_type": "IMAGE", "image_url": u, "is_carousel_item": "true"})["id"]
+            wait_ready(k); kids.append(k)
+        cid = call("me/threads", {**base, "media_type": "CAROUSEL", "children": ",".join(kids), "text": text})["id"]
+    wait_ready(cid)
+    return call("me/threads_publish", {"creation_id": cid})["id"]
+
+def main():
+    done = json.load(open("posted.json")) if os.path.exists("posted.json") else {}
+    now = datetime.now(KST)
+    errors = []
+    for f in sorted(glob.glob("posts/*.json")):
+        key = os.path.basename(f)
+        if key in done:
+            continue
+        p = json.load(open(f, encoding="utf-8"))
+        when = datetime.fromisoformat(p["time"]).replace(tzinfo=KST)
+        if when > now or now - when > timedelta(hours=12):
+            continue  # 아직 시간이 안 됐거나 너무 지난 글은 건너뜀
+        try:
+            pid = publish(p["text"], p.get("images", []))
+            rid = None
+            if p.get("reply"):
+                time.sleep(10)
+                rid = publish(p["reply"], [], reply_to=pid)
+            done[key] = {"post": pid, "reply": rid, "at": now.isoformat()}
+            print("올림:", key, pid)
+        except Exception as e:
+            errors.append(f"{key}: {e}")
+            print("실패:", key, e)
+    json.dump(done, open("posted.json", "w"), ensure_ascii=False, indent=1)
+    if errors:
+        raise SystemExit("\n".join(errors))
+
+if __name__ == "__main__":
+    main()

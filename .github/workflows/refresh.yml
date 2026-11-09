@@ -1,0 +1,17 @@
+name: 토큰 연장
+on:
+  schedule:
+    - cron: "0 0 1,15 * *"   # 매달 1일·15일
+  workflow_dispatch:
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          NEW=$(python3 scripts/refresh_token.py)
+          echo "::add-mask::$NEW"
+          gh secret set THREADS_TOKEN --body "$NEW" --repo "$GITHUB_REPOSITORY"
+        env:
+          THREADS_TOKEN: ${{ secrets.THREADS_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
