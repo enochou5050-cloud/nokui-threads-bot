@@ -4,6 +4,11 @@ on:
     - cron: "5 3 * * *"    # 한국 12:05
     - cron: "5 10 * * *"   # 한국 19:05
   workflow_dispatch:
+    inputs:
+      check_only:
+        description: "게시 없이 확인할 사진·영상 파일 이름 (쉼표로 구분)"
+        required: false
+        default: ""
 permissions:
   contents: write
 jobs:
@@ -14,6 +19,7 @@ jobs:
       - run: python3 scripts/post.py
         env:
           THREADS_TOKEN: ${{ secrets.THREADS_TOKEN }}
+          CHECK_ONLY: ${{ github.event.inputs.check_only }}
       - if: always()
         run: |
           git config user.name "threads-bot"

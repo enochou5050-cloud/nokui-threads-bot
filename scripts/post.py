@@ -23,7 +23,7 @@ def call(path, params, method="POST"):
         raise RuntimeError(f"{path}: {e.code} {e.read().decode()[:500]}")
 
 def wait_ready(cid):
-    for _ in range(30):
+    for _ in range(60):
         s = call(cid, {"fields": "status,error_message"}, "GET")
         if s.get("status") == "FINISHED":
             return
@@ -47,24 +47,41 @@ def with_link(reply):
         reply = reply.rstrip() + "\n\n" + CFG.get("buy_line", "구매 링크 👇") + "\n" + link
     return reply
 
-def publish(text, images, reply_to=None):
+def is_video(name):
+    return name.lower().endswith((".mp4", ".mov"))
+
+def media_params(name):
+    url = RAW + urllib.parse.quote(name)
+    return {"media_type": "VIDEO", "video_url": url} if is_video(name) else {"media_type": "IMAGE", "image_url": url}
+
+def build(text, images, reply_to=None):
+    """게시 전 컨테이너를 만들고 준비될 때까지 기다린다. 컨테이너 id 반환."""
     text = clean(text)
     base = {"reply_to_id": reply_to} if reply_to else {}
-    urls = [RAW + urllib.parse.quote(i) for i in images]
-    if not urls:
+    if not images:
         cid = call("me/threads", {**base, "media_type": "TEXT", "text": text})["id"]
-    elif len(urls) == 1:
-        cid = call("me/threads", {**base, "media_type": "IMAGE", "image_url": urls[0], "text": text})["id"]
+    elif len(images) == 1:
+        cid = call("me/threads", {**base, **media_params(images[0]), "text": text})["id"]
     else:
         kids = []
-        for u in urls:
-            k = call("me/threads", {"media_type": "IMAGE", "image_url": u, "is_carousel_item": "true"})["id"]
+        for n in images:
+            k = call("me/threads", {**media_params(n), "is_carousel_item": "true"})["id"]
             wait_ready(k); kids.append(k)
         cid = call("me/threads", {**base, "media_type": "CAROUSEL", "children": ",".join(kids), "text": text})["id"]
     wait_ready(cid)
+    return cid
+
+def publish(text, images, reply_to=None):
+    cid = build(text, images, reply_to)
     return call("me/threads_publish", {"creation_id": cid})["id"]
 
 def main():
+    check = os.environ.get("CHECK_ONLY", "").strip()
+    if check:  # 게시하지 않고 사진·영상을 쓰레드가 받아가는지만 확인
+        names = [n.strip() for n in check.split(",") if n.strip()]
+        build("확인용", names)
+        print("확인 완료(게시 안 함):", names)
+        return
     done = json.load(open("posted.json")) if os.path.exists("posted.json") else {}
     now = datetime.now(KST)
     errors = []
