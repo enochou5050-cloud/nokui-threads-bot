@@ -1,8 +1,9 @@
 name: 쓰레드 자동 게시
 on:
   schedule:
-    - cron: "5 3 * * *"    # 한국 12:05
-    - cron: "5 10 * * *"   # 한국 19:05
+    # GitHub 예약 실행은 늦거나 빠질 수 있어서 여러 번 시도 (이미 올린 글은 다시 안 올림)
+    - cron: "2,22,42 3-5 * * *"    # 한국 12시~14시대
+    - cron: "2,22,42 10-12 * * *"  # 한국 19시~21시대
   workflow_dispatch:
     inputs:
       check_only:
@@ -11,6 +12,9 @@ on:
         default: ""
 permissions:
   contents: write
+concurrency:
+  group: threads-post
+  cancel-in-progress: false
 jobs:
   post:
     runs-on: ubuntu-latest
