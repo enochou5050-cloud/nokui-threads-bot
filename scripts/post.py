@@ -32,7 +32,23 @@ def wait_ready(cid):
         time.sleep(5)
     raise RuntimeError(f"container {cid}: timeout")
 
+CFG = json.load(open("config.json", encoding="utf-8")) if os.path.exists("config.json") else {}
+
+def clean(t):
+    """마크다운 기호(**, __, `, #) 제거"""
+    import re
+    t = t.replace("**", "").replace("__", "").replace("`", "")
+    t = re.sub(r"(?m)^\s*#+\s*", "", t)
+    return t.strip()
+
+def with_link(reply):
+    link = CFG.get("buy_link")
+    if link and link not in reply:
+        reply = reply.rstrip() + "\n\n" + CFG.get("buy_line", "구매 링크 👇") + "\n" + link
+    return reply
+
 def publish(text, images, reply_to=None):
+    text = clean(text)
     base = {"reply_to_id": reply_to} if reply_to else {}
     urls = [RAW + urllib.parse.quote(i) for i in images]
     if not urls:
@@ -63,9 +79,10 @@ def main():
         try:
             pid = publish(p["text"], p.get("images", []))
             rid = None
-            if p.get("reply"):
+            reply = with_link(clean(p.get("reply", "")))
+            if reply:
                 time.sleep(10)
-                rid = publish(p["reply"], [], reply_to=pid)
+                rid = publish(reply, [], reply_to=pid)
             done[key] = {"post": pid, "reply": rid, "at": now.isoformat()}
             print("올림:", key, pid)
         except Exception as e:
