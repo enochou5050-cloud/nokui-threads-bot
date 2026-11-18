@@ -96,7 +96,9 @@ def main():
         try:
             pid = publish(p["text"], p.get("images", []))
             rid = None
-            reply = with_link(clean(p.get("reply", "")))
+            reply = clean(p.get("reply", ""))
+            if p.get("link", True):  # 마시꾸마처럼 링크 없이 가려면 글에 "link": false
+                reply = with_link(reply)
             if reply:
                 time.sleep(10)
                 rid = publish(reply, [], reply_to=pid)
